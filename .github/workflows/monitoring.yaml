@@ -1,0 +1,67 @@
+name: Monitoring Stack Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  monitoring:
+
+    runs-on: self-hosted
+
+    steps:
+
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Verify Kubernetes Cluster
+      run: |
+        kubectl get nodes
+
+    - name: Add Helm Repositories
+      run: |
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+        helm repo add grafana https://grafana.github.io/helm-charts
+
+        helm repo update
+
+    - name: Create Monitoring Namespace
+      run: |
+        kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Install Prometheus Stack
+      run: |
+        helm upgrade --install prometheus \
+        prometheus-community/kube-prometheus-stack \
+        --namespace monitoring \
+        -f helm-values/prometheus-values.yaml
+
+    - name: Install Loki
+      run: |
+        helm upgrade --install loki \
+        grafana/loki \
+        --namespace monitoring \
+        -f helm-values/loki-values.yaml
+
+    - name: Install Alloy
+      run: |
+        helm upgrade --install alloy \
+        grafana/alloy \
+        --namespace monitoring \
+        -f helm-values/alloy-values.yaml
+
+    - name: Deploy Test Nginx Application
+      run: |
+        kubectl apply -f manifests/nginx.yaml
+
+    - name: Verify Monitoring Pods
+      run: |
+        kubectl get pods -n monitoring
+
+    - name: Verify Application Pods
+      run: |
+        kubectl get pods -A
