@@ -61,7 +61,10 @@ jobs:
 
         kubectl delete pvc --all -n $NAMESPACE || true
 
-        kubectl delete secret -n $NAMESPACE $(kubectl get secret -n $NAMESPACE | grep loki | awk '{print $1}') || true
+        kubectl delete pod --all -n $NAMESPACE || true
+
+        kubectl delete secret -n $NAMESPACE \
+        $(kubectl get secret -n $NAMESPACE | grep loki | awk '{print $1}') || true
 
     - name: Install Prometheus Stack
       if: github.event.inputs.action == 'create'
@@ -82,12 +85,19 @@ jobs:
         -f helm-values/loki-values.yaml \
         --wait --timeout 10m --atomic
 
+    - name: Install Alloy CRDs
+      if: github.event.inputs.action == 'create'
+      run: |
+        kubectl apply --server-side -f \
+        https://raw.githubusercontent.com/grafana/alloy/main/operations/helm/charts/alloy/charts/crds/templates/crds.yaml
+
     - name: Install Alloy
       if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install alloy \
         grafana/alloy \
         --namespace $NAMESPACE \
+        --set crds.create=true \
         -f helm-values/alloy-values.yaml \
         --wait --timeout 10m --atomic
 
@@ -125,6 +135,7 @@ jobs:
         helm upgrade --install alloy \
         grafana/alloy \
         --namespace $NAMESPACE \
+        --set crds.create=true \
         -f helm-values/alloy-values.yaml \
         --wait --timeout 10m --atomic
 
@@ -184,3 +195,5 @@ jobs:
         kubectl get pvc -A
 
         kubectl get svc -A
+
+        kubectl get crds | grep grafana || true
