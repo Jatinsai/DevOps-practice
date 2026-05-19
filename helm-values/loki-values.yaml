@@ -27,10 +27,11 @@ loki:
 
   storage_config:
     filesystem:
-      directory: /var/loki/chunks
+      directory: /tmp/loki/chunks
 
-  ruler:
-    enable_api: false
+  rulerConfig:
+    storage:
+      type: local
 
 singleBinary:
   replicas: 1
