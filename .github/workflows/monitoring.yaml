@@ -54,6 +54,12 @@ jobs:
         kubectl create namespace $NAMESPACE \
         --dry-run=client -o yaml | kubectl apply -f -
 
+    - name: Install Grafana CRDs
+      if: github.event.inputs.action == 'create'
+      run: |
+        kubectl apply --server-side -f \
+        https://raw.githubusercontent.com/grafana/alloy/main/operations/helm/charts/alloy/charts/crds/templates/crds.yaml
+
     - name: Cleanup Failed Loki Resources
       if: github.event.inputs.action == 'create'
       run: |
@@ -85,19 +91,13 @@ jobs:
         -f helm-values/loki-values.yaml \
         --wait --timeout 10m --atomic
 
-    - name: Install Alloy CRDs
-      if: github.event.inputs.action == 'create'
-      run: |
-        kubectl apply --server-side -f \
-        https://raw.githubusercontent.com/grafana/alloy/main/operations/helm/charts/alloy/charts/crds/templates/crds.yaml
-
     - name: Install Alloy
       if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install alloy \
         grafana/alloy \
         --namespace $NAMESPACE \
-        --set crds.create=true \
+        --set crds.create=false \
         -f helm-values/alloy-values.yaml \
         --wait --timeout 10m --atomic
 
@@ -109,6 +109,12 @@ jobs:
     ###########################################################
     # UPGRADE
     ###########################################################
+
+    - name: Install Grafana CRDs
+      if: github.event.inputs.action == 'upgrade'
+      run: |
+        kubectl apply --server-side -f \
+        https://raw.githubusercontent.com/grafana/alloy/main/operations/helm/charts/alloy/charts/crds/templates/crds.yaml
 
     - name: Upgrade Prometheus Stack
       if: github.event.inputs.action == 'upgrade'
@@ -135,7 +141,7 @@ jobs:
         helm upgrade --install alloy \
         grafana/alloy \
         --namespace $NAMESPACE \
-        --set crds.create=true \
+        --set crds.create=false \
         -f helm-values/alloy-values.yaml \
         --wait --timeout 10m --atomic
 
