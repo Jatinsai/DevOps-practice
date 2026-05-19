@@ -20,11 +20,26 @@ loki:
   storage:
     type: filesystem
 
+  storage_config:
+    filesystem:
+      directory: /tmp/loki/chunks
+
+  ruler:
+    enable_api: false
+
 singleBinary:
   replicas: 1
 
   persistence:
     enabled: false
+
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp
 
 read:
   replicas: 0
