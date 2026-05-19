@@ -39,7 +39,9 @@ jobs:
       if: github.event.inputs.action == 'create' || github.event.inputs.action == 'upgrade'
       run: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
         helm repo add grafana https://grafana.github.io/helm-charts
+
         helm repo update
 
     ###########################################################
@@ -52,6 +54,15 @@ jobs:
         kubectl create namespace $NAMESPACE \
         --dry-run=client -o yaml | kubectl apply -f -
 
+    - name: Cleanup Failed Loki Resources
+      if: github.event.inputs.action == 'create'
+      run: |
+        helm uninstall loki -n $NAMESPACE || true
+
+        kubectl delete pvc --all -n $NAMESPACE || true
+
+        kubectl delete secret -n $NAMESPACE $(kubectl get secret -n $NAMESPACE | grep loki | awk '{print $1}') || true
+
     - name: Install Prometheus Stack
       if: github.event.inputs.action == 'create'
       run: |
@@ -59,16 +70,17 @@ jobs:
         prometheus-community/kube-prometheus-stack \
         --namespace $NAMESPACE \
         -f helm-values/prometheus-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     - name: Install Loki
       if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install loki \
         grafana/loki \
+        --version 5.41.4 \
         --namespace $NAMESPACE \
         -f helm-values/loki-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     - name: Install Alloy
       if: github.event.inputs.action == 'create'
@@ -77,7 +89,7 @@ jobs:
         grafana/alloy \
         --namespace $NAMESPACE \
         -f helm-values/alloy-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     - name: Deploy Test Nginx Application
       if: github.event.inputs.action == 'create'
@@ -91,53 +103,41 @@ jobs:
     - name: Upgrade Prometheus Stack
       if: github.event.inputs.action == 'upgrade'
       run: |
-        helm upgrade prometheus \
+        helm upgrade --install prometheus \
         prometheus-community/kube-prometheus-stack \
         --namespace $NAMESPACE \
         -f helm-values/prometheus-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     - name: Upgrade Loki
       if: github.event.inputs.action == 'upgrade'
       run: |
-        helm upgrade loki \
+        helm upgrade --install loki \
         grafana/loki \
+        --version 5.41.4 \
         --namespace $NAMESPACE \
         -f helm-values/loki-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     - name: Upgrade Alloy
       if: github.event.inputs.action == 'upgrade'
       run: |
-        helm upgrade alloy \
+        helm upgrade --install alloy \
         grafana/alloy \
         --namespace $NAMESPACE \
         -f helm-values/alloy-values.yaml \
-        --wait --timeout 10m
+        --wait --timeout 10m --atomic
 
     ###########################################################
     # RESTART
     ###########################################################
 
-    - name: Restart Prometheus Operator
+    - name: Restart Monitoring Components
       if: github.event.inputs.action == 'restart'
       run: |
-        kubectl rollout restart deployment/prometheus-operator -n $NAMESPACE
+        kubectl rollout restart deployment -n $NAMESPACE || true
 
-    - name: Restart Grafana
-      if: github.event.inputs.action == 'restart'
-      run: |
-        kubectl rollout restart deployment/prometheus-grafana -n $NAMESPACE
-
-    - name: Restart Loki
-      if: github.event.inputs.action == 'restart'
-      run: |
-        kubectl rollout restart statefulset/loki -n $NAMESPACE || true
-
-    - name: Restart Alloy
-      if: github.event.inputs.action == 'restart'
-      run: |
-        kubectl rollout restart deployment/alloy -n $NAMESPACE || true
+        kubectl rollout restart statefulset -n $NAMESPACE || true
 
     ###########################################################
     # DELETE
@@ -158,6 +158,11 @@ jobs:
       run: |
         helm uninstall prometheus -n $NAMESPACE || true
 
+    - name: Delete PVCs
+      if: github.event.inputs.action == 'delete'
+      run: |
+        kubectl delete pvc --all -n $NAMESPACE || true
+
     - name: Delete Test Application
       if: github.event.inputs.action == 'delete'
       run: |
@@ -175,3 +180,7 @@ jobs:
     - name: Verify Resources
       run: |
         kubectl get pods -A
+
+        kubectl get pvc -A
+
+        kubectl get svc -A
