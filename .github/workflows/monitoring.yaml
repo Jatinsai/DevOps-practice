@@ -1,7 +1,18 @@
-name: Monitoring Stack Deployment
+name: Monitoring Stack Management
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Select operation"
+        required: true
+        default: create
+        type: choice
+        options:
+          - create
+          - delete
+          - upgrade
+          - restart
 
 permissions:
   contents: read
@@ -11,6 +22,9 @@ jobs:
   monitoring:
 
     runs-on: self-hosted
+
+    env:
+      NAMESPACE: monitoring
 
     steps:
 
@@ -22,46 +36,142 @@ jobs:
         kubectl get nodes
 
     - name: Add Helm Repositories
+      if: github.event.inputs.action == 'create' || github.event.inputs.action == 'upgrade'
       run: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-
         helm repo add grafana https://grafana.github.io/helm-charts
-
         helm repo update
 
+    ###########################################################
+    # CREATE
+    ###########################################################
+
     - name: Create Monitoring Namespace
+      if: github.event.inputs.action == 'create'
       run: |
-        kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create namespace $NAMESPACE \
+        --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Install Prometheus Stack
+      if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install prometheus \
         prometheus-community/kube-prometheus-stack \
-        --namespace monitoring \
-        -f helm-values/prometheus-values.yaml
+        --namespace $NAMESPACE \
+        -f helm-values/prometheus-values.yaml \
+        --wait --timeout 10m
 
     - name: Install Loki
+      if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install loki \
         grafana/loki \
-        --namespace monitoring \
-        -f helm-values/loki-values.yaml
+        --namespace $NAMESPACE \
+        -f helm-values/loki-values.yaml \
+        --wait --timeout 10m
 
     - name: Install Alloy
+      if: github.event.inputs.action == 'create'
       run: |
         helm upgrade --install alloy \
         grafana/alloy \
-        --namespace monitoring \
-        -f helm-values/alloy-values.yaml
+        --namespace $NAMESPACE \
+        -f helm-values/alloy-values.yaml \
+        --wait --timeout 10m
 
     - name: Deploy Test Nginx Application
+      if: github.event.inputs.action == 'create'
       run: |
         kubectl apply -f manifests/nginx.yaml
 
-    - name: Verify Monitoring Pods
-      run: |
-        kubectl get pods -n monitoring
+    ###########################################################
+    # UPGRADE
+    ###########################################################
 
-    - name: Verify Application Pods
+    - name: Upgrade Prometheus Stack
+      if: github.event.inputs.action == 'upgrade'
+      run: |
+        helm upgrade prometheus \
+        prometheus-community/kube-prometheus-stack \
+        --namespace $NAMESPACE \
+        -f helm-values/prometheus-values.yaml \
+        --wait --timeout 10m
+
+    - name: Upgrade Loki
+      if: github.event.inputs.action == 'upgrade'
+      run: |
+        helm upgrade loki \
+        grafana/loki \
+        --namespace $NAMESPACE \
+        -f helm-values/loki-values.yaml \
+        --wait --timeout 10m
+
+    - name: Upgrade Alloy
+      if: github.event.inputs.action == 'upgrade'
+      run: |
+        helm upgrade alloy \
+        grafana/alloy \
+        --namespace $NAMESPACE \
+        -f helm-values/alloy-values.yaml \
+        --wait --timeout 10m
+
+    ###########################################################
+    # RESTART
+    ###########################################################
+
+    - name: Restart Prometheus Operator
+      if: github.event.inputs.action == 'restart'
+      run: |
+        kubectl rollout restart deployment/prometheus-operator -n $NAMESPACE
+
+    - name: Restart Grafana
+      if: github.event.inputs.action == 'restart'
+      run: |
+        kubectl rollout restart deployment/prometheus-grafana -n $NAMESPACE
+
+    - name: Restart Loki
+      if: github.event.inputs.action == 'restart'
+      run: |
+        kubectl rollout restart statefulset/loki -n $NAMESPACE || true
+
+    - name: Restart Alloy
+      if: github.event.inputs.action == 'restart'
+      run: |
+        kubectl rollout restart deployment/alloy -n $NAMESPACE || true
+
+    ###########################################################
+    # DELETE
+    ###########################################################
+
+    - name: Delete Alloy
+      if: github.event.inputs.action == 'delete'
+      run: |
+        helm uninstall alloy -n $NAMESPACE || true
+
+    - name: Delete Loki
+      if: github.event.inputs.action == 'delete'
+      run: |
+        helm uninstall loki -n $NAMESPACE || true
+
+    - name: Delete Prometheus Stack
+      if: github.event.inputs.action == 'delete'
+      run: |
+        helm uninstall prometheus -n $NAMESPACE || true
+
+    - name: Delete Test Application
+      if: github.event.inputs.action == 'delete'
+      run: |
+        kubectl delete -f manifests/nginx.yaml --ignore-not-found=true
+
+    - name: Delete Monitoring Namespace
+      if: github.event.inputs.action == 'delete'
+      run: |
+        kubectl delete namespace $NAMESPACE --ignore-not-found=true
+
+    ###########################################################
+    # VERIFY
+    ###########################################################
+
+    - name: Verify Resources
       run: |
         kubectl get pods -A
